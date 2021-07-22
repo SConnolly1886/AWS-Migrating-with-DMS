@@ -1,0 +1,698 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Virtual On Prem Environment to Simulate DB Migration with DMS
+Parameters:
+  LatestAmiId:
+    Description: AMI for Instance (default is latest AmaLinux2)
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+Resources:
+  onpremVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.10.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: onpremVPC
+  onpremInternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: onpremIGW
+  onpremInternetGatewayAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref onpremVPC
+      InternetGatewayId: !Ref onpremInternetGateway
+  onpremPublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref onpremVPC
+      Tags:
+        - Key: Name
+          Value: onpremPublicRT
+  onpremDefaultV4Route:
+    Type: "AWS::EC2::Route"
+    DependsOn: onpremInternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: onpremPublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: onpremInternetGateway
+  onpremPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref onpremVPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 192.168.10.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: onprem-public
+  onpremPublicRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref onpremPublicSubnet
+      RouteTableId:
+        Ref: onpremPublicRouteTable
+  onpremSecurityGroupWeb:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref onpremVPC
+      GroupDescription: Control access to the Web EC2 Instance
+      SecurityGroupIngress:
+        - Description: "Allow HTTP IPv4 IN"
+          IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          CidrIp: "0.0.0.0/0"
+  onpremSecurityGroupDB:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref onpremVPC
+      GroupDescription: Control access to the DB EC2 Instance
+      SecurityGroupIngress:
+        - Description: "Allow MySQL IPv4 IN"
+          IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          CidrIp: "0.0.0.0/0"
+  onpremRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  onpremInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref onpremRole
+  onpremWeb:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: ami-0d08dec1b159694b1
+      IamInstanceProfile: !Ref onpremInstanceProfile
+      SubnetId: !Ref onpremPublicSubnet
+      SecurityGroupIds:
+        - !Ref onpremSecurityGroupWeb
+      Tags:
+        - Key: Name
+          Value: OnPremWeb
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          cd /var/www/html
+          sed -i "s/'localhost'/'${onpremDB.PrivateIp}'/g" wp-config.php
+          /home/ec2-user/update_wordpress.sh
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource onpremWeb --region ${AWS::Region}
+
+  onpremDB:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: ami-0a19917d923175daa
+      IamInstanceProfile: !Ref onpremInstanceProfile
+      SubnetId: !Ref onpremPublicSubnet
+      SecurityGroupIds:
+        - !Ref onpremSecurityGroupDB
+      Tags:
+        - Key: Name
+          Value: OnPremDB
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource onpremDB --region ${AWS::Region}
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MIGRATION-VPC
+  IPv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AmazonProvidedIpv6CidrBlock: true
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MIGRATION-IGW
+  InternetGatewayAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  RouteTablePublic:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Migration-vpc-rt-pub
+  RouteTablePrivateApp:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Migration-vpc-rt-app
+  RouteTablePrivateDB:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Migration-vpc-rt-db
+  RoutePublicIPv4:
+    Type: "AWS::EC2::Route"
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: RouteTablePublic
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: InternetGateway
+  RoutePublicIPv6:
+    Type: "AWS::EC2::Route"
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: RouteTablePublic
+      DestinationIpv6CidrBlock: "::/0"
+      GatewayId:
+        Ref: InternetGateway
+  RouteAssociationPubA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId:
+        Ref: RouteTablePublic
+  RouteAssociationPubB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId:
+        Ref: RouteTablePublic
+  RouteAssociationPubC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId:
+        Ref: RouteTablePublic
+  RouteAssociationAppA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref AppSubnetA
+      RouteTableId:
+        Ref: RouteTablePrivateApp
+  RouteAssociationAppB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref AppSubnetB
+      RouteTableId:
+        Ref: RouteTablePrivateApp
+  RouteAssociationAppC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref AppSubnetC
+      RouteTableId:
+        Ref: RouteTablePrivateApp
+  RouteAssociationDBA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref DBSubnetA
+      RouteTableId:
+        Ref: RouteTablePrivateDB
+  RouteAssociationDBB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref DBSubnetB
+      RouteTableId:
+        Ref: RouteTablePrivateDB
+  RouteAssociationDBC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref DBSubnetC
+      RouteTableId:
+        Ref: RouteTablePrivateDB
+
+  DBSubnetA:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.16.16.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "01::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: db-subnet-A
+  DBSubnetB:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.16.80.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "05::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: db-subnet-B
+  DBSubnetC:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.16.144.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "09::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: db-subnet-C
+  AppSubnetA:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.16.32.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "02::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-A
+  AppSubnetB:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.16.96.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "06::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-B
+  AppSubnetC:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.16.160.0/20
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "0A::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-C
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.16.48.0/20
+      MapPublicIpOnLaunch: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "03::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: public-subnet-A
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.16.112.0/20
+      MapPublicIpOnLaunch: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "07::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: public-subnet-B
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.16.176.0/20
+      MapPublicIpOnLaunch: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: "0B::/64"
+            VpcPart:
+              !Select [
+                0,
+                !Split ["00::/56", !Select [0, !GetAtt VPC.Ipv6CidrBlocks]],
+              ]
+      Tags:
+        - Key: Name
+          Value: public-subnet-C
+  IPv6WorkaroundSubnetPUBA:
+    Type: Custom::SubnetModify
+    Properties:
+      ServiceToken: !GetAtt IPv6WorkaroundLambda.Arn
+      SubnetId: !Ref PublicSubnetA
+  IPv6WorkaroundSubnetPUBB:
+    Type: Custom::SubnetModify
+    Properties:
+      ServiceToken: !GetAtt IPv6WorkaroundLambda.Arn
+      SubnetId: !Ref PublicSubnetB
+  IPv6WorkaroundSubnetPUBC:
+    Type: Custom::SubnetModify
+    Properties:
+      ServiceToken: !GetAtt IPv6WorkaroundLambda.Arn
+      SubnetId: !Ref PublicSubnetC
+  IPv6WorkaroundRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub "ipv6-fix-logs-${AWS::StackName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: !Sub "ipv6-fix-modify-${AWS::StackName}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:ModifySubnetAttribute
+                Resource: "*"
+  IPv6WorkaroundLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: "index.lambda_handler"
+      Code: #import cfnresponse below required to send respose back to CFN
+        ZipFile:
+          Fn::Sub: |
+            import cfnresponse
+            import boto3
+
+            def lambda_handler(event, context):
+                if event['RequestType'] is 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS)
+                  return
+
+                responseValue = event['ResourceProperties']['SubnetId']
+                ec2 = boto3.client('ec2', region_name='${AWS::Region}')
+                ec2.modify_subnet_attribute(AssignIpv6AddressOnCreation={
+                                                'Value': True
+                                              },
+                                              SubnetId=responseValue)
+                responseData = {}
+                responseData['SubnetId'] = responseValue
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "CustomResourcePhysicalID")
+      Runtime: python3.8
+      Role: !GetAtt IPv6WorkaroundRole.Arn
+      Timeout: 30
+  SGWordpress:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Control access to Wordpress Instance(s)
+      SecurityGroupIngress:
+        - Description: "Open HTTP port for EC2"
+          IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          CidrIp: "0.0.0.0/0"
+        - Description: SSH port
+          IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: "0.0.0.0/0"
+  SGDatabase:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Control access to Database
+      SecurityGroupIngress:
+        - Description: "Open MySQL port/Allow access from Wordpress EC2"
+          IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          SourceSecurityGroupId: !Ref SGWordpress
+  SGLoadBalancer:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Control access to Load Balancer
+      SecurityGroupIngress:
+        - Description: "Open HTTP Port for ALB"
+          IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          CidrIp: "0.0.0.0/0"
+  SGEFS:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Control access to EFS
+      # EFS uses port 2049
+      SecurityGroupIngress:
+        - Description: "Open EFS port/Allow access from Wordpress EC2"
+          IpProtocol: tcp
+          FromPort: "2049"
+          ToPort: "2049"
+          SourceSecurityGroupId: !Ref SGWordpress
+  WordpressRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess
+  WordpressInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref WordpressRole
+
+  AWSWordpress:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref WordpressInstanceProfile
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref SGWordpress
+      Tags:
+        - Key: Name
+          Value: AWSWeb
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # Configure Wordpress on AWS
+          yum -y update
+          yum -y install httpd mariadb
+          amazon-linux-extras install -y php7.2
+          systemctl enable httpd
+          systemctl start httpd
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource AWSWordpress --region ${AWS::Region}
+
+  myDBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: 3 AZs in US-East-1
+      SubnetIds:
+        - !Ref DBSubnetA
+        - !Ref DBSubnetB
+        - !Ref DBSubnetC
+      Tags:
+        - Key: Name
+          Value: RDSsubnetGroup
+
+  myRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: "5"
+      DBInstanceClass: db.t2.micro
+      DBName: !Ref DBName
+      DBSubnetGroupName: !Ref myDBSubnetGroup
+      Engine: MariaDB
+      EngineVersion: "10.4.18"
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBRootPassword
+      Port: "3306"
+      Tags:
+        - Key: Name
+          Value: RDSdb
+      VPCSecurityGroups:
+        - !Ref SGDatabase
+    DeletionPolicy: Delete
+
+  myVPCPeeringConnection:
+    Type: "AWS::EC2::VPCPeeringConnection"
+    Properties:
+      VpcId: !Ref onpremVPC
+      PeerVpcId: !Ref VPC
+  PeeringRoute1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: !GetAtt VPC.CidrBlock
+      RouteTableId: !Ref onpremPublicRouteTable
+      VpcPeeringConnectionId: !Ref myVPCPeeringConnection
+  PeeringRoute2:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: !GetAtt onpremVPC.CidrBlock
+      RouteTableId: !Ref RouteTablePublic
+      VpcPeeringConnectionId: !Ref myVPCPeeringConnection
+  PeeringRoute3:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: !GetAtt onpremVPC.CidrBlock
+      RouteTableId: !Ref RouteTablePrivateApp
+      VpcPeeringConnectionId: !Ref myVPCPeeringConnection
+  PeeringRoute4:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: !GetAtt onpremVPC.CidrBlock
+      RouteTableId: !Ref RouteTablePrivateDB
+      VpcPeeringConnectionId: !Ref myVPCPeeringConnection
+
+Outputs:
+  OnPremDBPrivateIP:
+    Description: Private IP of OnPrem DB
+    Value: !GetAtt onpremDB.PrivateIp
+  DBName:
+    Description: WordPress database name
+    Value: wordpressdb
+  DBPassword:
+    Description: The WordPress database admin account password
+    Value: "weakpassword"
+  DBRootPassword:
+    Description: MySQL root password
+    Value: "weakpassword"
+  DBUser:
+    Description: The WordPress database admin account username
+    Value: "wordpressdb"
+  AWSWebPrivateIP:
+    Description: Private IP of AWS Web Server
+    Value: !GetAtt AWSWordpress.PrivateIp
