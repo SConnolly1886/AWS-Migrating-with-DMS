@@ -50,4 +50,5 @@ Great now if everything is working as it should....use  the public IPv4 on the A
 ![wp1](https://user-images.githubusercontent.com/62077185/126720106-ab2dfca9-8cc1-4302-9ab9-057e6969f287.JPG)
 
 Fantastic! On to the next step...
+[Migrating-DB-with-DMS](https://github.com/SConnolly1886/AWS-Migrating-with-DMS/blob/main/AWS-Migrating-with-DMS-3.md)
 
