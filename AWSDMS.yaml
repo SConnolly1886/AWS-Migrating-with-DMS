@@ -5,6 +5,46 @@ Parameters:
     Description: AMI for Instance (default is latest AmaLinux2)
     Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
     Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  DBName:
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription:
+      must begin with a letter and contain only alphanumeric
+      characters.
+    Default: wordpressdb
+    AllowedValues:
+      - wordpressdb
+    Description: The WordPress database name
+    MaxLength: "64"
+    MinLength: "1"
+    Type: String
+  DBPassword:
+    AllowedPattern: "^[A-Za-z][a-zA-Z0-9@%$_-]{8,41}$"
+    ConstraintDescription: must contain only alphanumeric characters.
+    Description: The WordPress database admin account password
+    MaxLength: "41"
+    MinLength: "8"
+    Default: "weakpassword"
+    Type: String
+  DBRootPassword:
+    AllowedPattern: "^[A-Za-z][a-zA-Z0-9@%$_-]{8,41}$"
+    ConstraintDescription: must contain only alphanumeric characters.
+    Description: MySQL root password
+    Default: "weakpassword"
+    MaxLength: "41"
+    MinLength: "8"
+    Type: String
+  DBUser:
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription:
+      must begin with a letter and contain only alphanumeric
+      characters.
+    Description: The WordPress database admin account username
+    Default: wordpressdb
+    AllowedValues:
+      - wordpressdb
+    MaxLength: "16"
+    MinLength: "1"
+    Type: String
 Resources:
   onpremVPC:
     Type: AWS::EC2::VPC
@@ -681,18 +721,18 @@ Outputs:
   OnPremDBPrivateIP:
     Description: Private IP of OnPrem DB
     Value: !GetAtt onpremDB.PrivateIp
-  DBName:
+  NameDB:
     Description: WordPress database name
-    Value: wordpressdb
-  DBPassword:
+    Value: !Ref DBName
+  PasswordDB:
     Description: The WordPress database admin account password
-    Value: "weakpassword"
-  DBRootPassword:
+    Value: !Ref DBPassword
+  RootPasswordMysql:
     Description: MySQL root password
-    Value: "weakpassword"
-  DBUser:
+    Value: !Ref DBRootPassword
+  UserDB:
     Description: The WordPress database admin account username
-    Value: "wordpressdb"
+    Value: !Ref DBUser
   AWSWebPrivateIP:
     Description: Private IP of AWS Web Server
     Value: !GetAtt AWSWordpress.PrivateIp
