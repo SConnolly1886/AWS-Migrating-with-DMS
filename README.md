@@ -25,7 +25,7 @@ The template will create:
 - vpc
 - 3 public, 6 private subnets
 - 3 availability zones (us-east-1)
-- routes tables/assocations 
+- routes tables/associations 
 - vpc peering connection
 - vpc peering routes
 - security groups needed for [AWS-Monolith-2-Fault-Tolerant](https://github.com/SConnolly1886/AWS-Monolith-2-Fault-Tolerant)
