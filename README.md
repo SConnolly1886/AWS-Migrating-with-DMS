@@ -45,4 +45,5 @@ Again, be patient. The RDS instance will take up some time. Once everything is c
 
 ![migrationinitial](https://user-images.githubusercontent.com/62077185/126720104-b0ac8bb4-f4c1-46ca-b8c5-ca04b2e9fd81.png)
 
-Great! Now on to the next step. Migrating the on-premises web server info to the AWS instance using SCP. 
+Great! Now on to the next step. Migrating the on-premises web server info to the AWS instance using SCP. <br/>
+[Migrating-Wordpress-Content](https://github.com/SConnolly1886/AWS-Migrating-with-DMS/blob/main/AWS-Migrating-with-DMS-2.md)
