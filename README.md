@@ -42,6 +42,7 @@ The CloudFormation template will create the following outputs that you will need
 - AWSWebPrivateIP: Private IP of AWS Web Server
 
 Again, be patient. The RDS instance will take up some time. Once everything is created your environment should look like this
+
 ![migrationinitial](https://user-images.githubusercontent.com/62077185/126720104-b0ac8bb4-f4c1-46ca-b8c5-ca04b2e9fd81.png)
 
 Great! Now on to the next step. Migrating the on-premises web server info to the AWS instance using SCP. 
