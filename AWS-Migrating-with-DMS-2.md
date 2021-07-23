@@ -21,7 +21,7 @@ Next, run the command `passwd ec2-user`. When prompted for a password use the `D
 Now restart the SSHD service to put those changes into affect. Run the command  `systemctl restart sshd`
 
 ### Changes on On-Premise Web Server 
-Connect to the simulated on-prem web server using SSM Session Manager. Run `sudo bash` for elevated priviledges. 
+Connect to the simulated on-prem web server using SSM Session Manager. Run `sudo bash` for elevated privileges. 
 
 Move to the web folder `cd /var/www/`
 
@@ -31,12 +31,12 @@ Run `scp -rp html ec2-user@PRIVATEIPOFTHEAWSWEBSERVER:/home/ec2-user` answer `ye
 
 
 ### Now back to the AWS Web Server
-Connect to the instance again if you haven't closed the old connection. Escalate priviledges and move to the `/home/ec2-usr` directory where the files were copied to. 
+Connect to the instance again if you haven't closed the old connection. Escalate privileges and move to the `/home/ec2-usr` directory where the files were copied to. 
 
 Run `ls -la` to check for the html directory and the run `cd html`. Great now copy all of those files to the webroot folder using the following command:
 `cp * -R /var/www/html/`
 
-Now all that needs to be done is to change the permissions on the files you've moved. Run the commnands below to change the permissions:
+Now all that needs to be done is to change the permissions on the files you've moved. Run the commands below to change the permissions:
 ```
 usermod -a -G apache ec2-user   
 chown -R ec2-user:apache /var/www
