@@ -19,7 +19,7 @@ In the DMS Console:
 - description `migrating db from on-prem to aws`
 - `Instance Class` choose `dms.t2.micro` 
 - for `VPC` select `VPC` 
-- uncheck `MultiAZ` and `Pubicly Accessing`  
+- uncheck `MultiAZ` and `Publicly Accessing`  
 - ensure `DMSSubnetGroup` is selected in `Replication subnet group`  
 - security group select `SGDatabase`
 - `Create`
@@ -45,7 +45,7 @@ Now for the endpoints!
 - DBPassword for password
 - `Create endpoint` 
 
-Great the endpoints have been created. Now all thats left is the migration!
+Great the endpoints have been created. Now all that's left is the migration!
 
 ## Step 5 - Migrating the DB
 Move to `migration tasks`
