@@ -1,6 +1,9 @@
 # Migrating the Database server using AWS Database Migration Service (DMS).
 An RDS instance was created using the CloudFormation template so these next steps will be that much easier! All that needs to be done is to create a DMS Subnet group, create a replication instance (smaller instance for example), DMS source endpoint, DMS destination endpoint, migrate, and cutover the app instance!
 
+
+![migration](https://user-images.githubusercontent.com/62077185/126720099-a1156139-2cb0-4d1d-bbd9-b514aaa1ed6f.png)
+
 ## Step 1 - Create the DMS Subnet Group
 In the AWS DMS console select the following:
 - `Create Subnet Group`
